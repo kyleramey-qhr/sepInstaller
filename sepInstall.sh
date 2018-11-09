@@ -1,9 +1,21 @@
 #!/bin/sh
 # Symantec Installer
 
+# variables
+workingDir=$PWD
+YELLOW='\033[0;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+VER='0.2.0'
+
 displayHelp()
 {
     echo "Usage: sepInstall.sh [-z sep_zip][-d sep_directory]"
+}
+
+error()
+{
+    >&2 echo -e "${RED}${1}${NC}"
 }
 
 checkDirectory()
@@ -11,14 +23,14 @@ checkDirectory()
     # Make sure the directory exists
     if [ ! -d $1 ]
     then
-        >&2 echo "Specified directory ($1) does not exist"
+        error "Specified directory ($1) does not exist"
         exit 1
     fi
 
     # Check for the installer script and src directory
     if [ ! -f "$1/install.sh" ] || [ ! -d "$1/src" ]
     then
-        >&2 echo "Specified directory ($1) does not appear to be a SEP install folder"
+        error "Specified directory ($1) does not appear to be a SEP install folder"
         exit 1
     fi
 
@@ -53,7 +65,7 @@ checkDependencies()
     fi
 }
 
-buildKernel()
+buildKernelModules()
 {
     cd "$1/src"
     tar -xf "ap-kernelmodule.tar.bz2"
@@ -62,11 +74,16 @@ buildKernel()
     cd ../../
 }
 
-# variables
-workingDir=$PWD
-YELLOW='\033[0;33m'
-NC='\033[0m'
-VER='0.1.0'
+checkSavStatus()
+{
+    status=$(/opt/symantec/symantec_antivirus/sav info -a)
+    if [[ $status -eq "Enabled" ]]
+    then
+        return 0
+    else
+        return 1
+    fi
+}
 
 echo -e "${YELLOW}Better(?) SEP Installer ${VER}${NC}"
 
@@ -81,7 +98,7 @@ fi
 # Make sure the flag is valid
 if [[ -z $1 ]] || [[ ! $1 == @("-z"|"-d") ]]
 then
-    >&2 echo "Invalid flag"
+    error "Invalid flag"
     displayHelp
     exit 1
 fi
@@ -99,13 +116,10 @@ then
     checkDirectory $2
     directory=$2
 else
-    >&2 echo "Could not find $2"
+    error "Could not find $2"
 fi
 
 checkDependencies
-
-buildKernel $directory
-cd $workingDir
 
 # Uninstall existing version
 if [ -d "/etc/symantec/sep" ]
@@ -114,7 +128,7 @@ then
     sudo ./install.sh -u
     if [[ ! $? ]]
     then
-        >&2 echo "Could not uninstall SEP"
+        error "Could not uninstall SEP"
     fi
 fi
 
@@ -123,12 +137,22 @@ echo "Running SEP Installer"
 sudo $directory/install.sh -i
 if [[ ! $? ]]
 then
-    >&2 echo "Could not install SEP"
+    error "Could not install SEP"
 else
-    echo "The installer is done. If there are no errors above, it "
-    if [[ $1 == "-z" ]]
+    echo "The installer is done"
+fi
+
+if [[ checkSavStatus ]]
+then
+    echo "SEP appears to be installed and functioning"
+    exit 0
+else
+    buildKernelModules
+    if [[ checkSavStatus ]]
     then
-        echo "Cleaning up"
-        rm -rf $directory
-    fi
+        echo "SEP appears to be installed and functioning"
+        exit 0
+    else
+        error "SEP is not functioning. See above for errors."
+
 fi
